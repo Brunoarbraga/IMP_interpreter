@@ -52,36 +52,32 @@ runInterp ev st = runStateT (runExceptT ev) st
 
 -- Interpretador das expressões
 interpExp :: Exp -> InterpM Value
+
 -- Se a expressão for um número, usa o contrutor IntVal pra transformar esse número para o tipo Value
 interpExp (ANum n) = return $ IntVal n
--- Interpreta as duas expressões, olha se o valor resultante de ambas são inteiros, e faz a soma
+
+-- Interpreta as duas expressões e realiza a soma
 interpExp (APlus e1 e2) = do
     v1 <- interpExp e1
     v2 <- interpExp e2
     case (v1, v2) of
         (IntVal v1, IntVal v2) -> return $ IntVal (v1 + v2)
-        (IntVal v1, BoolVal v2) -> throwError ("Error: Mismatched types for arithmetic sum. Second expression is boolean, must be Integer")
-        (BoolVal v1, IntVal v2) -> throwError ("Error: Mismatched types for arithmetic sum. First expression is boolean, must be Integer")
-        _ -> throwError ("Error: Mismatched types for arithmetic sum. Both expressions are boolean, must be Integer")
+
 -- Interpreta as duas expressões, olha se o valor resultante de ambas são inteiros, e faz a subtração
 interpExp (AMinus e1 e2) = do
     v1 <- interpExp e1
     v2 <- interpExp e2
     case (v1, v2) of
         (IntVal v1, IntVal v2) -> return $ IntVal (v1 - v2)
-        (IntVal v1, BoolVal v2) -> throwError ("Error: Mismatched types for arithmetic subtraction. Second expression is boolean, must be Integer")
-        (BoolVal v1, IntVal v2) -> throwError ("Error: Mismatched types for arithmetic subtraction. First expression is boolean, must be Integer")
-        _ -> throwError ("Error: Mismatched types for arithmetic subtraction. Both expressions are boolean, must be Integer")
+
 -- Interpreta as duas expressões, olha se o valor resultante de ambas são inteiros, e faz a multiplicação
 interpExp (Amult e1 e2) = do
     v1 <- interpExp e1
     v2 <- interpExp e2
     case (v1, v2) of
         (IntVal v1, IntVal v2) -> return $ IntVal (v1 * v2)
-        (IntVal v1, BoolVal v2) -> throwError ("Error: Mismatched types for arithmetic multiplication. Second expression is boolean, must be Integer")
-        (BoolVal v1, IntVal v2) -> throwError ("Error: Mismatched types for arithmetic multplication. First expression is boolean, must be Integer")
-        _ -> throwError ("Error: Mismatched types for arithmetic multiplication. Both expressions are boolean, must be Integer")
--- Se a expressão for um booleano, usa o contrutor BoolBal pra transformar esse booleano para o tipo Value
+
+-- Se a expressão for um booleano, usa o contrutor BoolVal pra transformar esse booleano para o tipo Value
 interpExp (BFalse) = return $ BoolVal False
 interpExp (BTrue) = return $ BoolVal True
 interpExp (BEq e1 e2) = do
@@ -90,39 +86,37 @@ interpExp (BEq e1 e2) = do
     case (v1,v2) of
         (IntVal v1, IntVal v2) -> if v1 == v2 then return $ BoolVal True else return $ BoolVal False
         (BoolVal v1, BoolVal v2) -> if v1 == v2 then return $ BoolVal True else return $ BoolVal False
-        _ -> throwError ("Error: Cannot compare boolean expressions with arithmetic expressions")
+
 interpExp (BNeq e1 e2) = do
     v1 <- interpExp e1
     v2 <- interpExp e2
     case (v1,v2) of
         (IntVal v1, IntVal v2) -> if v1 == v2 then return $ BoolVal False else return $ BoolVal True
         (BoolVal v1, BoolVal v2) -> if v1 == v2 then return $ BoolVal False else return $ BoolVal True
-        _ -> throwError ("Error: Cannot compare boolean expressions with arithmetic expressions")
+
 interpExp (BNot e1) = do
     v1 <- interpExp e1
     case v1 of
         (BoolVal v1) -> return $ BoolVal (not v1)
-        _ -> throwError ("Error: Boolean operator 'not' cannot be used on arithmetic expressions")
+  
 interpExp (BAnd e1 e2) = do
     v1 <- interpExp e1
     v2 <- interpExp e2
     case (v1, v2) of
         (BoolVal v1, BoolVal v2) -> return $ BoolVal (v1 && v2)
-        (IntVal v1, BoolVal v2) -> throwError ("Error: Mismatched types for boolean expression 'and'. First expression is Integer, must be boolean.")
-        (BoolVal v1, IntVal v2) -> throwError ("Error: Mismatched types for boolean expression 'and'. Second expression is Integer, must be boolean.")
-        _ -> throwError ("Error: Mismatched types for boolean expression 'and'. Both expressions are Integer, must be boolean.")
+  
 interpExp (BLe e1 e2) = do
     v1 <- interpExp e1
     v2 <- interpExp e2
     case (v1, v2) of
         (IntVal v1, IntVal v2) -> if v1 < v2 then return $ BoolVal True else return $ BoolVal False
-        _ -> throwError ("Error: ")
+
 interpExp (BGt e1 e2) = do
     v1 <- interpExp e1
     v2 <- interpExp e2
     case (v1, v2) of
         (IntVal v1, IntVal v2) -> if v1 > v2 then return $ BoolVal True else return $ BoolVal False
-        _ -> throwError ("Error: ")
+
 interpExp (AId s) = lookupVar s
 
 
@@ -162,24 +156,38 @@ lookupVar s = do
 
 
 
+
+
+
 --------------------------------------------------------------------------
+-- TYPE CHECKER
 
 
 
-
+-- 
 data Type = TInteger | TBool deriving(Show)
-type TypeEnv = [(Exp , Type)] 
+
+-- Type checker environment, Keeps track of the types of each expression
+type TypeEnv = [(Exp , Type)]
+
+-- Type checker state monad 
 type TypeM b = ExceptT String (StateT TypeEnv IO) b 
 
 
+-- Type Checker run function:
+-- takes a monad, a type environment, and returns an IO tuple with the result and an updated enviroment 
 runTypeChecker :: TypeM b -> TypeEnv -> IO (Either String b, TypeEnv)
 runTypeChecker ev st = runStateT (runExceptT ev) st
 
--- Interpretador das expressões
+-- Type checker function:
+-- Takes an expression, if the expression has correct typing, updates the type environment with 
+-- the expression and its type, otherwise throws and error
 typeChecker :: Exp -> TypeM Type
-typeChecker (ANum num) = do
-    --modify (\env -> ((ANum num), TInteger) : env)
-    return TInteger
+
+-- A num is an integer, so returns TInteger type
+typeChecker (ANum num) = return TInteger
+
+-- Checks the type of both expressions in the sum, if they are both Integers, the sum is considered correct.
 typeChecker (APlus e1 e2) = do
     type1 <- typeChecker e1
     type2 <- typeChecker e2
@@ -188,25 +196,58 @@ typeChecker (APlus e1 e2) = do
             modify (\env -> ((APlus e1 e2), TInteger) : env)
             return TInteger
         _ -> throwError("Incompatible types for expression addition")
+
+-- Checks the type of both expressions in the subtraction, if they are both Integers, the subtraction is considered correct.
 typeChecker (AMinus e1 e2) = do
     type1 <- typeChecker e1
     type2 <- typeChecker e2
     case (type1, type2) of
         (TInteger, TInteger) -> return TInteger
         _ -> throwError("Incompatible types for expression subtraction")
+
+-- Checks the type of both expressions in the multiplication, if they are both Integers, the multiplication is considered correct.
 typeChecker (Amult e1 e2) = do
     type1 <- typeChecker e1
     type2 <- typeChecker e2
     case (type1, type2) of
         (TInteger, TInteger) -> return TInteger
         _ -> throwError("Incompatible types for expression multiplication")
-typeChecker (BTrue) = do
-    modify (\env -> ((BTrue), TBool) : env)
-    return TBool
-typeChecker (BFalse) = do
-    modify (\env -> ((BFalse), TBool) : env)
-    return TBool
+    
+-- BTrue and BFalse are booleans, so returns TBool type
+typeChecker (BTrue) = return TBool
+typeChecker (BFalse) = return TBool
+
+-- BEq checks the type of both expressions, if they are equal, the equality is considered correct
+typeChecker (BEq e1 e2) = do
+    type1 <- typeChecker e1
+    type2 <- typeChecker e2
+    case (type1, type2) of
+        (TInteger, TInteger) -> do
+            modify (\env -> ((BEq e1 e2), TInteger) : env)
+            return TInteger
+        (TBool, TBool) -> do
+            modify (\env -> ((BEq e1 e2), TBool) : env)
+            return TBool
+        _ -> throwError("Incompatible types for expression equality") 
+
+-- BNEq checks the type of both expressions, if they are equal, the inequality is considered correct
+typeChecker (BNeq e1 e2) = do
+    type1 <- typeChecker e1
+    type2 <- typeChecker e2
+    case (type1, type2) of
+        (TInteger, TInteger) -> do
+            modify (\env -> ((BNeq e1 e2), TInteger) : env)
+            return TInteger
+        (TBool, TBool) -> do
+            modify (\env -> ((BNeq e1 e2), TBool) : env)
+            return TBool
+        _ -> throwError("Incompatible types for expression inequality") 
 
 
-exampleExp = (APlus (ANum 3) (ANum 5)) 
+
+
+
+
+-- Example expression for simple tests
+exampleExp = (BEq (APlus (ANum 4) (ANum 4)) (ANum 5)) 
 --BLe (ANum 12 `APlus` (AId "var")) (ANum 100)
