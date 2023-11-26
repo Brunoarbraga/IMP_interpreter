@@ -162,5 +162,51 @@ lookupVar s = do
 
 
 
-exampleExp = (CRead "var") 
+--------------------------------------------------------------------------
+
+
+
+
+data Type = TInteger | TBool deriving(Show)
+type TypeEnv = [(Exp , Type)] 
+type TypeM b = ExceptT String (StateT TypeEnv IO) b 
+
+
+runTypeChecker :: TypeM b -> TypeEnv -> IO (Either String b, TypeEnv)
+runTypeChecker ev st = runStateT (runExceptT ev) st
+
+-- Interpretador das expressões
+typeChecker :: Exp -> TypeM Type
+typeChecker (ANum num) = do
+    --modify (\env -> ((ANum num), TInteger) : env)
+    return TInteger
+typeChecker (APlus e1 e2) = do
+    type1 <- typeChecker e1
+    type2 <- typeChecker e2
+    case (type1, type2) of
+        (TInteger, TInteger) -> do
+            modify (\env -> ((APlus e1 e2), TInteger) : env)
+            return TInteger
+        _ -> throwError("Incompatible types for expression addition")
+typeChecker (AMinus e1 e2) = do
+    type1 <- typeChecker e1
+    type2 <- typeChecker e2
+    case (type1, type2) of
+        (TInteger, TInteger) -> return TInteger
+        _ -> throwError("Incompatible types for expression subtraction")
+typeChecker (Amult e1 e2) = do
+    type1 <- typeChecker e1
+    type2 <- typeChecker e2
+    case (type1, type2) of
+        (TInteger, TInteger) -> return TInteger
+        _ -> throwError("Incompatible types for expression multiplication")
+typeChecker (BTrue) = do
+    modify (\env -> ((BTrue), TBool) : env)
+    return TBool
+typeChecker (BFalse) = do
+    modify (\env -> ((BFalse), TBool) : env)
+    return TBool
+
+
+exampleExp = (APlus (ANum 3) (ANum 5)) 
 --BLe (ANum 12 `APlus` (AId "var")) (ANum 100)
