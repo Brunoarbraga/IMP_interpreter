@@ -211,59 +211,44 @@ typeCheckerExp (Op Amult e1 e2) = do
     case (type1, type2) of
         (TInt, TInt) -> return TInt
 
-{-
 
 -- BEq checks the type of both expressions, if they are equal, the equality is considered correct
-typeCheckerExp (BEq e1 e2) = do
+typeCheckerExp (Op BEq e1 e2) = do
     type1 <- typeCheckerExp e1
     type2 <- typeCheckerExp e2
-    case (type1, type2) of
-        (TInt, TInt) -> return TInt
-        (TBool, TBool) -> return TBool
-        _ -> throwError("Incompatible types for expression equality") 
+    return TBool
 
 
 -- BNEq checks the type of both expressions, if they are equal, the inequality is considered correct
-typeCheckerExp (BNeq e1 e2) = do
+typeCheckerExp (Op BNeq e1 e2) = do
     type1 <- typeCheckerExp e1
     type2 <- typeCheckerExp e2
-    case (type1, type2) of
-        (TInt, TInt) -> return TInt
-        (TBool, TBool) -> return TBool
-        _ -> throwError("Incompatible types for expression inequality") 
+    return TBool
 
-typeCheckerExp (BLe e1 e2) = do
+typeCheckerExp (Op BLe e1 e2) = do
     type1 <- typeCheckerExp e1
     type2 <- typeCheckerExp e2
-    case (type1, type2) of
-        (TInt, TInt) -> return TInt
-        _ -> throwError("Incompatible types for expression comparisson")
+    return TBool
 
-typeCheckerExp (BGt e1 e2) = do
+typeCheckerExp (Op BGt e1 e2) = do
     type1 <- typeCheckerExp e1
     type2 <- typeCheckerExp e2
-    case (type1, type2) of
-        (TInt, TInt) -> return TInt
-        _ -> throwError("Incompatible types for expression comparisson")
+    return TBool
 
-typeCheckerExp (BNot e1) = do
-    type1 <- typeCheckerExp e1
-    case type1 of
-        TBool -> return TBool
-        _ -> throwError("Incompatible type for expression negation")
+-- typeCheckerExp (Op BNot e1) = do
+--     type1 <- typeCheckerExp e1
+--     return TBool
 
-typeCheckerExp (BAnd e1 e2) = do
+typeCheckerExp (Op BAnd e1 e2) = do
     type1 <- typeCheckerExp e1
     type2 <- typeCheckerExp e2
-    case (type1, type2) of
-        (TBool, TBool) -> return TBool
-        _ -> throwError("Incompatible type for logical AND")
+    return TBool
 
 ----------------------------------------------------------------------
 
 
 
--}
+
 
 
 
