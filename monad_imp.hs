@@ -1,3 +1,7 @@
+{-# LANGUAGE GADTs         #-}
+{-# LANGUAGE TypeFamilies  #-}
+{-# LANGUAGE TypeOperators #-}
+
 -- Imports
 import Control.Monad.Identity
 import Control.Monad.Except
@@ -5,6 +9,7 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Writer
 import Data.Maybe
+import Data.Function
 import qualified Data.Map as Map
 
 
@@ -15,39 +20,59 @@ import qualified Data.Map as Map
 data Com = CSkip
    -- | CAsgn String Exp
     | CSeq Com Com
-    | CIf Exp Com Com
-    | CWhile Exp Com
-    | CPrint Exp
-    | CRead String
-    deriving(Show)      
-        
--- Expressões aritiméticas e booleanas
-data Exp = ANum Int
-    | AId String
-    | APlus Exp Exp
-    | AMinus Exp Exp
-    | Amult Exp Exp
-    | BTrue
-    | BFalse 
-    | BEq Exp Exp
-    | BNeq Exp Exp
-    | BLe Exp Exp
-    | BGt Exp Exp
-    | BNot Exp
-    | BAnd Exp Exp
-    deriving(Show)
+    | CIf (Exp Bool) Com Com
+    | CWhile (Exp Bool) Com
+    | CPrint (Exp Int)
+    | CRead String      
 
+
+
+class TypeOf a where
+  typeOf :: a -> Type a
+
+instance TypeOf Int where
+  typeOf _ = TInt
+
+instance TypeOf Bool where
+  typeOf _ = TBool
+
+
+
+-- Expressions and operations
+data Type :: * -> * where
+  TInt    :: Type Int
+  TBool   :: Type Bool
+  TArrow  :: Type a -> Type b -> Type (a -> b)
+
+data Exp :: * -> * where
+    Lit :: TypeOf a => a -> Exp a
+    Op :: Op a b -> (Exp a -> Exp a -> Exp b)
+
+data Op :: * -> * -> * where
+  APlus :: Op Int Int
+  AMinus :: Op Int Int
+  Amult :: Op Int Int
+  BEq :: Op Int Bool
+  BNeq :: Op Int Bool
+  BLe :: Op Int Bool
+  BGt :: Op Int Bool
+  BAnd :: Op Bool Bool
+  BOr :: Op Bool Bool
+  BNot :: Op Bool Bool
+
+-- Value type
 data Value = IntVal Int
     | BoolVal Bool
     deriving(Show)
 
--- Environment
-type Env = [(String , Value)] 
+-- Environments
+type Env = [(String , Value)]
+type VarEnv = [String]
 
 
--- Mônada: ExceptT retorna uma String de erro ou outra mônada, no caso StateT. StateT recebe um estado inicial,
---no caso, o Env, e uma mônada padrão IO
-type InterpM a = ExceptT String (StateT Env IO) a 
+-- Monads
+type InterpM a = ExceptT String (StateT Env IO) a
+type VarM a = ExceptT String (StateT VarEnv IO) a  
 
 --------------------------------------------------------------------------
 
@@ -63,79 +88,33 @@ type InterpM a = ExceptT String (StateT Env IO) a
   
 
 -- Função que interpreta a mônada
---Recebe a mônada interpM, um estado inicial Env e retorna um IO com uma tupla de resultado
---A tupla possui um Either com uma mensagem de erro ou um valor, e o estado final Env
+-- Recebe a mônada interpM, um estado inicial Env e retorna um IO com uma tupla de resultado
+-- A tupla possui um Either com uma mensagem de erro ou um valor, e o estado final Env
 runInterp :: InterpM a -> Env -> IO (Either String a, Env)
 runInterp ev st = runStateT (runExceptT ev) st
 
 -- Interpretador das expressões
-interpExp :: Exp -> InterpM Value
+interpExp :: Exp t -> InterpM t
 
--- Se a expressão for um número, usa o contrutor IntVal pra transformar esse número para o tipo Value
-interpExp (ANum n) = return $ IntVal n
+interpExp (Lit n) = return n
 
--- Interpreta as duas expressões e realiza a soma
-interpExp (APlus e1 e2) = do
+interpExp (Op b e1 e2) =  do
     v1 <- interpExp e1
     v2 <- interpExp e2
-    case (v1, v2) of
-        (IntVal v1, IntVal v2) -> return $ IntVal (v1 + v2)
+    return (evalOp b v1 v2)
 
--- Interpreta as duas expressões, olha se o valor resultante de ambas são inteiros, e faz a subtração
-interpExp (AMinus e1 e2) = do
-    v1 <- interpExp e1
-    v2 <- interpExp e2
-    case (v1, v2) of
-        (IntVal v1, IntVal v2) -> return $ IntVal (v1 - v2)
+evalOp :: Op a b -> a -> a -> b
+evalOp APlus = (+)
+evalOp AMinus = (-)
+evalOp Amult = (*)
+evalOp BEq  = (==)
+evalOp BLe  = (<)
+evalOp BGt  = (>)
+evalOp BAnd = (&&)
+evalOp BOr  = (||)
 
--- Interpreta as duas expressões, olha se o valor resultante de ambas são inteiros, e faz a multiplicação
-interpExp (Amult e1 e2) = do
-    v1 <- interpExp e1
-    v2 <- interpExp e2
-    case (v1, v2) of
-        (IntVal v1, IntVal v2) -> return $ IntVal (v1 * v2)
 
--- Se a expressão for um booleano, usa o contrutor BoolVal pra transformar esse booleano para o tipo Value
-interpExp (BFalse) = return $ BoolVal False
-interpExp (BTrue) = return $ BoolVal True
-interpExp (BEq e1 e2) = do
-    v1 <- interpExp e1
-    v2 <- interpExp e2
-    case (v1,v2) of
-        (IntVal v1, IntVal v2) -> if v1 == v2 then return $ BoolVal True else return $ BoolVal False
-        (BoolVal v1, BoolVal v2) -> if v1 == v2 then return $ BoolVal True else return $ BoolVal False
 
-interpExp (BNeq e1 e2) = do
-    v1 <- interpExp e1
-    v2 <- interpExp e2
-    case (v1,v2) of
-        (IntVal v1, IntVal v2) -> if v1 == v2 then return $ BoolVal False else return $ BoolVal True
-        (BoolVal v1, BoolVal v2) -> if v1 == v2 then return $ BoolVal False else return $ BoolVal True
-
-interpExp (BNot e1) = do
-    v1 <- interpExp e1
-    case v1 of
-        (BoolVal v1) -> return $ BoolVal (not v1)
-  
-interpExp (BAnd e1 e2) = do
-    v1 <- interpExp e1
-    v2 <- interpExp e2
-    case (v1, v2) of
-        (BoolVal v1, BoolVal v2) -> return $ BoolVal (v1 && v2)
-  
-interpExp (BLe e1 e2) = do
-    v1 <- interpExp e1
-    v2 <- interpExp e2
-    case (v1, v2) of
-        (IntVal v1, IntVal v2) -> if v1 < v2 then return $ BoolVal True else return $ BoolVal False
-
-interpExp (BGt e1 e2) = do
-    v1 <- interpExp e1
-    v2 <- interpExp e2
-    case (v1, v2) of
-        (IntVal v1, IntVal v2) -> if v1 > v2 then return $ BoolVal True else return $ BoolVal False
-
-interpExp (AId s) = lookupVar s
 
 
 -- Interpretador dos comandos
@@ -148,14 +127,11 @@ interpCom (CSeq com1 com2) = do
 interpCom (CIf e1 com1 com2) = do
     v1 <- interpExp e1
     case v1 of
-        (BoolVal True) -> interpCom com1
-        (BoolVal False) -> interpCom com2
-        _ -> throwError ("Conditional expression must be a boolean expression")
+        True -> interpCom com1
+        False -> interpCom com2
 interpCom (CPrint e1) = do
     v1 <- interpExp e1
-    case v1 of
-        (IntVal v1) -> liftIO $ print v1
-        _ -> throwError("Expression to be printed must result in an Int") 
+    liftIO $ print v1
 interpCom (CRead var) = do
     x <- liftIO readInteger
     modify (\env -> (var, IntVal x) : env)
@@ -188,11 +164,12 @@ lookupVar s = do
 
 
 
--- 
-data Type = TInt | TBool deriving(Show)
+
+--data Type = IntType | BoolType deriving(Show)
 
 -- Type checker environment, Keeps track of the types of each expression
-type TypeEnv = [(Exp , Type)]
+--type TypeEnv = [(Exp Int, Type Int)]
+type TypeEnv = [Int]
 
 -- Type checker state monad 
 type TypeM b = ExceptT String (StateT TypeEnv IO) b 
@@ -206,38 +183,35 @@ runTypeChecker ev st = runStateT (runExceptT ev) st
 -- Type checker function:
 -- Takes an expression, if the expression has correct typing, updates the type environment with 
 -- the expression and its type, otherwise throws and error
-typeCheckerExp :: Exp -> VarM Type
+typeCheckerExp :: Exp t -> VarM (Type t)
 
--- A num is an Int, so returns TInt type
-typeCheckerExp (ANum num) = return TInt
+typeCheckerExp (Lit n) = return (litType n) where
+    litType :: TypeOf a => a -> Type a
+    litType n = case typeOf n of
+      TInt  -> TInt
+      TBool -> TBool 
 
 -- Checks the type of both expressions in the sum, if they are both Integers, the sum is considered correct.
-typeCheckerExp (APlus e1 e2) = do
+typeCheckerExp (Op APlus e1 e2) = do
     type1 <- typeCheckerExp e1
     type2 <- typeCheckerExp e2
-    case (type1, type2) of
-        (TInt, TInt) -> return TInt
-        _ -> throwError("Incompatible types for expression addition")
+    return TInt
 
 -- Checks the type of both expressions in the subtraction, if they are both Integers, the subtraction is considered correct.
-typeCheckerExp (AMinus e1 e2) = do
+typeCheckerExp (Op AMinus e1 e2) = do
     type1 <- typeCheckerExp e1
     type2 <- typeCheckerExp e2
     case (type1, type2) of
         (TInt, TInt) -> return TInt
-        _ -> throwError("Incompatible types for expression subtraction")
 
 -- Checks the type of both expressions in the multiplication, if they are both Integers, the multiplication is considered correct.
-typeCheckerExp (Amult e1 e2) = do
+typeCheckerExp (Op Amult e1 e2) = do
     type1 <- typeCheckerExp e1
     type2 <- typeCheckerExp e2
     case (type1, type2) of
         (TInt, TInt) -> return TInt
-        _ -> throwError("Incompatible types for expression multiplication")
-    
--- BTrue and BFalse are booleans, so returns TBool type
-typeCheckerExp (BTrue) = return TBool
-typeCheckerExp (BFalse) = return TBool
+
+{-
 
 -- BEq checks the type of both expressions, if they are equal, the equality is considered correct
 typeCheckerExp (BEq e1 e2) = do
@@ -247,6 +221,7 @@ typeCheckerExp (BEq e1 e2) = do
         (TInt, TInt) -> return TInt
         (TBool, TBool) -> return TBool
         _ -> throwError("Incompatible types for expression equality") 
+
 
 -- BNEq checks the type of both expressions, if they are equal, the inequality is considered correct
 typeCheckerExp (BNeq e1 e2) = do
@@ -288,7 +263,7 @@ typeCheckerExp (BAnd e1 e2) = do
 
 
 
-
+-}
 
 
 
@@ -298,10 +273,6 @@ typeCheckerExp (BAnd e1 e2) = do
 -- INTERPRETER COMMAND TYPECHECKER
 -- Manages scopes with a [String] variable environment
 
-
-
-type VarEnv = [String]
-type VarM c = ExceptT String (StateT VarEnv IO) c 
 
 typeCheckerCom :: Com -> VarM ()
 
@@ -323,12 +294,25 @@ typeCheckerCom (CIf exp com1 com2) = do
     type1 <- typeCheckerExp exp
     case type1 of 
         TBool -> do
+
+            -- Saves the current env to check both commands with it
+            currentEnv <- get
+
+            -- Checks com1 and saves the updated env
             typeCheckerCom com1 
+            envAfterCom1 <- get
+
+            -- Restores the previous env to check com2 with it
+            put currentEnv
+        
+            -- Checks com2 and saves the updated env
             typeCheckerCom com2
-            modify (\env -> removeDuplicates env)
+            envAfterCom2 <- get
+
+            -- Unites both envs and removes the duplicate variables
+            put (removeDuplicates(envAfterCom1 ++ envAfterCom2))
             return ()
             --return $ removeDuplicates (result1 ++ result2)
-        _ -> throwError("Conditional expression must be boolean")
 
 typeCheckerCom (CWhile exp com) = do
     type1 <- typeCheckerExp exp
@@ -338,8 +322,6 @@ typeCheckerCom (CWhile exp com) = do
             modify (\env -> removeDuplicates env)
             return ()
             --return $ removeDuplicates result
-        _ -> throwError("Conditional expression must be boolean")
-
 
 
 -- removes duplicate variables from variables list
@@ -359,5 +341,6 @@ removeDuplicates (x:xs) = x : removeDuplicates (filter (/= x) xs)
 
 
 -- Example expression for simple tests
-exampleExp = (CSeq (CRead "var2") (CWhile (BAnd (BTrue) (BTrue)) (CRead "var"))) 
+--exampleExp = (CSeq (CRead "var2") (CWhile (BAnd (BTrue) (BTrue)) (CRead "var"))) 
 --BLe (ANum 12 `APlus` (AId "var")) (ANum 100)
+
